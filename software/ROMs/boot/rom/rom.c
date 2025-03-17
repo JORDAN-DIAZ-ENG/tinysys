@@ -21,6 +21,14 @@ static const char *s_regnames[]={"pc", "ra", "sp", "gp", "tp", "t0", "t1", "t2",
 
 void ClearStatics()
 {
+	// Clear device control blocks
+	uint32_t *devicecontrol = (uint32_t* )KERNEL_DEVICECONTROL;
+	__builtin_memset(devicecontrol, 0, 512); // Clear device control block to zeros, currently there's only UART here
+
+	// Clear keyboard and joystick input buffers
+	uint32_t *userinput = (uint32_t* )KERNEL_INPUTBUFFER;
+	__builtin_memset(userinput, 0, 1024); // 2x512 bytes for keyboard and joystick input buffers
+
 	// Clear static variables for all systems that use them
 	SerialInitStatics();
 	CLIClearStatics();
@@ -163,17 +171,12 @@ void __attribute__((aligned(64), noinline)) UserMain()
 	_task_init_context(self);
 
 	struct STaskContext *taskctx = _task_get_context(self);
-	_task_add(taskctx, "CPUIdle", _stubTask, TS_RUNNING, HUNDRED_MILLISECONDS_IN_TICKS, self, TASK_STACK_POINTER(self, 0, TASK_STACK_SIZE));
+	_task_add(taskctx, "CPUIdle", _stubTask, TS_RUNNING, HUNDRED_MILLISECONDS_IN_TICKS, self, 0 /*no gp*/, TASK_STACK_POINTER(self, 0, TASK_STACK_SIZE));
 
 	InstallISR(self, false, true);
 
 	while(1)
 	{
-		// Kernel error halts all CPUs other than CPU#0
-		// It is up to CPU#0 to detect errors and report/reset others
-		if (taskctx->kernelError)
-			while(1) { asm volatile("wfi;"); }
-
 		asm volatile("wfi;");
 
 		// Yield time back to any tasks running on this core after handling an interrupt
@@ -185,11 +188,28 @@ void __attribute__((aligned(64), noinline)) UserMain()
 
 void HandleCPUError(struct STaskContext *ctx, const uint32_t cpu)
 {
+	// Handle regular task termination first
+	// This is in case we both have a crash and a task termination at the same time
+	if (ctx->kernelError & 0x80000000)
+	{
+		ksetcolor(CONSOLEGREEN, CONSOLEDEFAULTBG);
+		DeviceDefaultState(0);
+		kprintf("Task %d:%d completed (ret=%d)\n", cpu, ctx->kernelErrorData[0], ctx->kernelErrorData[1]);
+	}
+
+	// Strip any termination flag
+	ctx->kernelError &= 0x7FFFFFFF;
+
+	// Nothing else to handle
+	if (ctx->kernelError == 0)
+		return;
+
+	// Now on to actual kernel errors
 	ksetcolor(CONSOLERED, CONSOLEDIMGRAY);
 
 	switch (ctx->kernelError)
 	{
-		case 1: ksetcolor(CONSOLEDEFAULTFG, CONSOLEDEFAULTBG); return; // kprintf("Unknown hardware device"); break; // This can happen during hblank, no need to report
+		case 1: ksetcolor(CONSOLEDEFAULTFG, CONSOLEDEFAULTBG); return; // kprintf("Unknown hardware device"); break;
 		case 2: kprintf("Unknown interrupt type"); break;
 		case 3: kprintf("Guru meditation"); break;
 		case 4: kprintf("Illegal instruction"); break;
@@ -223,11 +243,6 @@ void HandleCPUError(struct STaskContext *ctx, const uint32_t cpu)
 	}
 
 	ksetcolor(CONSOLEDEFAULTFG, CONSOLEDEFAULTBG);
-
-	// Reset CPU#1 here if anything faulted
-	// This way we won't risk some stale task being hung on CPU#1 if CPU#0 crashes
-	E32SetupCPU(1, UserMain);
-	E32ResetCPU(1);
 
 	// Clear error once handled and reported
 	ctx->kernelError = 0;
@@ -288,22 +303,24 @@ void __attribute__((aligned(64), noinline)) KernelMain()
 	//GDBStubInit();
 
 	LEDSetState((0x3<<2)|0x1);														// xxOO--
-	struct STaskContext *taskctx[3];
+	struct STaskContext *taskctx[2];
 	taskctx[0] = _task_get_context(self);
 	taskctx[1] = _task_get_context(1);
-	taskctx[2] = _task_get_context(2);
-	_task_add(taskctx[0], "CPUIdle", _stubTask, TS_RUNNING, HUNDRED_MILLISECONDS_IN_TICKS, self, TASK_STACK_POINTER(self, 0, TASK_STACK_SIZE));
-	_task_add(taskctx[0], "CLI", _CLITask, TS_RUNNING, HUNDRED_MILLISECONDS_IN_TICKS, self, TASK_STACK_POINTER(self, 1, TASK_STACK_SIZE));
+	_task_add(taskctx[0], "CPUIdle", _stubTask, TS_RUNNING, HUNDRED_MILLISECONDS_IN_TICKS, self, 0 /*no gp*/, TASK_STACK_POINTER(self, 0, TASK_STACK_SIZE));
+	_task_add(taskctx[0], "CLI", _CLITask, TS_RUNNING, HUNDRED_MILLISECONDS_IN_TICKS, self, 0 /*no gp*/, TASK_STACK_POINTER(self, 1, TASK_STACK_SIZE));
 
 	LEDSetState((0x7<<2)|0x1);														// xOOO--
 	InstallISR(self, true, true);
 
+	// TODO:
 	LEDSetState((0xE<<2)|0x1);														// OOOx--
 
 	// Done
 	LEDSetState(0x0);																// xxxx--
 
-	//kprintf("CPU1 entry:%x mtvec:%x rst:%x\n", (uint32_t)UserMain, E32ReadMemMappedCSR(1, CSR_MSCRATCH), E32ReadMemMappedCSR(1, CSR_CPURESET));
+	// NOTE: Sometimes CPU#1 will be stuck in 'reset' mode, use this to detect the case
+	//kprintf("0: main@%08x mtvec@0x%08x rst@0x%08x\n", (uint32_t)KernelMain, E32ReadMemMappedCSR(0, CSR_MTVEC), E32ReadMemMappedCSR(0, CSR_CPURESET));
+	//kprintf("1: main@%08x mtvec@0x%08x rst@0x%08x\n", (uint32_t)UserMain, E32ReadMemMappedCSR(1, CSR_MTVEC), E32ReadMemMappedCSR(1, CSR_CPURESET));
 
 	// Main CLI loop
 	struct EVideoContext *kernelgfx = VPUGetKernelGfxContext();
@@ -324,7 +341,7 @@ void __attribute__((aligned(64), noinline)) KernelMain()
 		// Refresh console output
 		// DEBUG: Optionally echo to UART if no task is intercepting it
 		if (kernelgfx->m_consoleUpdated)
-			VPUConsoleResolve(kernelgfx/*, !taskctx[0]->interceptUART*/);
+			VPUConsoleResolve(kernelgfx);
 
 		// Yield time as soon as we're done here (disables/enables interrupts)
 		clear_csr(mie, MIP_MTIP);
@@ -344,7 +361,9 @@ void __attribute__((aligned(64), noinline)) KernelMain()
 		// user tasks that intercept UART input (only OS apps should)
 		// ----------------------------------------------------------------
 
-		if(!taskctx[0]->interceptUART)
+		volatile uint32_t *devicecontrol = (volatile uint32_t* )KERNEL_DEVICECONTROL;
+		// Allow serial input to be processed if it's not turned off
+		if(devicecontrol[0] == 0)
 			HandleSerialInput();
 	}
 }
@@ -356,9 +375,7 @@ int main()
 	// Reset static variable pool just in case we're rebooted
 	ClearStatics();
 
-	// Reset and wake up all CPUs again, this time with their correct entry points
-	E32SetupCPU(1, UserMain);
-	E32ResetCPU(1);
+	// Reset and wake up main CPU, which will then reset and wake up secondary CPU(s)
 	E32SetupCPU(0, KernelMain);
 	E32ResetCPU(0);
 

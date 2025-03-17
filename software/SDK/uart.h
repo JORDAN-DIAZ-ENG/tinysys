@@ -2,6 +2,12 @@
 
 #include <inttypes.h>
 
+#include "basesystem.h"
+#if defined(BUILDING_ROM)
+#include "mini-printf.h"
+#else
+#include "tbm_printf.h"
+#endif
 
 // Control register bits
 #define UARTCTL_RESET_TX_FIFO	0x00000001
@@ -19,6 +25,8 @@
 //#define UARTSTA_ERR_OVERRUN			0x00000020
 //#define UARTSTA_ERR_FRAME			0x00000040
 //#define UARTSTA_ERR_PARITY			0x00000080
+
+void UARTInterceptSetState(int state);
 
 uint32_t UARTGetStatus();
 void UARTSetControl(uint32_t ctl);

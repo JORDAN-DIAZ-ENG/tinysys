@@ -85,36 +85,6 @@ void ksetcursor(const int _x, const int _y)
 	VPUConsoleSetCursor(kernelgfx, _x, _y);
 }
 
-int _task_add(struct STaskContext *_ctx, const char *_name, taskfunc _task, enum ETaskState _initialState, const uint32_t _runLength, const uint32_t _hartid, const uint32_t _parentStackPointer)
-{
-	int32_t prevcount = _ctx->numTasks;
-	if (prevcount >= TASK_MAX)
-		return 0;
-
-	// Insert the task before we increment task count
-	struct STask *task = &(_ctx->tasks[prevcount]);
-	task->regs[0] = (uint32_t)_task;		// Initial PC
-	task->regs[2] = _parentStackPointer;	// Stack pointer
-	task->regs[8] = _parentStackPointer;	// Frame pointer
-	task->runLength = _runLength;			// Time slice dedicated to this task
-
-	char *np = (char*)_name;
-	int idx = 0;
-	while(np!=0 && idx<15)
-	{
-		task->name[idx++] = *np;
-		++np;
-	}
-	task->name[idx] = 0;
-
-	// We assume running state as soon as we start
-	task->state = _initialState;
-
-	++_ctx->numTasks;
-
-	return prevcount;
-}
-
 uint32_t _task_switch_to_task(struct STaskContext *_ctx, const uint32_t _taskID)
 {
 	// Load current process ID from TP register
@@ -246,6 +216,10 @@ uint32_t _task_switch_to_next(struct STaskContext *_ctx)
 	{
 		if (currentTask != 0)
 		{
+			_ctx->kernelError = _ctx->kernelError | 0x80000000; // Task terminated (not a real error, also take care to not overwrite any real errors)
+			_ctx->kernelErrorData[0] = currentTask;
+			_ctx->kernelErrorData[1] = _ctx->tasks[currentTask].exitCode;
+
 			// Mark as 'terminated'
 			_ctx->tasks[currentTask].state = TS_TERMINATED;
 			// Replace with task at end of list, if we're not the end of list
@@ -308,6 +282,37 @@ uint32_t _task_switch_to_next(struct STaskContext *_ctx)
 	write_csr(0x8BF, regs[31]);	// t6
 
 	return _ctx->tasks[currentTask].runLength;
+}
+
+int _task_add(struct STaskContext *_ctx, const char *_name, taskfunc _task, enum ETaskState _initialState, const uint32_t _runLength, const uint32_t _hartid, const uint32_t _gp, const uint32_t _parentStackPointer)
+{
+	int32_t prevcount = _ctx->numTasks;
+	if (prevcount >= TASK_MAX)
+		return 0;
+
+	// Insert the task before we increment task count
+	struct STask *task = &(_ctx->tasks[prevcount]);
+	task->regs[0] = (uint32_t)_task;		// Initial PC
+	task->regs[2] = _parentStackPointer;	// Stack pointer
+	task->regs[3] = _gp;					// Global pointer
+	task->regs[8] = _parentStackPointer;	// Frame pointer
+	task->runLength = _runLength;			// Time slice dedicated to this task
+
+	char *np = (char*)_name;
+	int idx = 0;
+	while(np!=0 && idx<15)
+	{
+		task->name[idx++] = *np;
+		++np;
+	}
+	task->name[idx] = 0;
+
+	// We assume running state as soon as we start
+	task->state = _initialState;
+
+	++_ctx->numTasks;
+
+	return prevcount;
 }
 
 void _task_exit_task_with_id(struct STaskContext *_ctx, uint32_t _taskid, uint32_t _signal)
@@ -378,29 +383,8 @@ void _task_init_context(uint32_t _hartid)
 {
 	// Initialize task context memory
 	struct STaskContext *ctx = _task_get_context(_hartid);
-
-	ctx->currentTask = 0;
-	ctx->numTasks = 0;
-	ctx->interceptUART = 0;
-	ctx->kernelError = 0;
-	ctx->kernelErrorData[0] = 0;
-	ctx->kernelErrorData[1] = 0;
-	ctx->kernelErrorData[2] = 0;
+	memset(ctx, 0x0, sizeof(struct STaskContext));
 	ctx->hartID = _hartid;
-
-	// Clean out all tasks
-	struct STask *task = ctx->tasks;
-	for (uint32_t i=0; i<TASK_MAX; ++i)
-	{
-		task->HART = 0x0;				// Default affinity mask is HART#0
-		task->runLength = 0x0;			// Default time slice
-		task->exitCode = 0x0;			// Default exit code
-		for (uint32_t j=0; j<32; ++j)
-			task->regs[j] = 0x0;		// Clear all registers
-		task->state = TS_UNKNOWN;
-		task->name[0] = 0;				// No name
-		++task;
-	}
 }
 
 uint32_t MountDrive()
@@ -773,18 +757,6 @@ void HandleUART()
 	LEDSetState(currLED);
 }
 
-void HandleHBlank()
-{
-	// Chain into user installed horizontal blank handler
-	// NOTE: We're not in any application context here (we're inside the OS ISR),
-	// so we can't expect acess to application side data, including those from SP or GP.
-	// Instead this routine should be using the mailbox memory for temp data.
-	void(*handler)(void) = (void (*)())read_csr(0xFE0);
-	// NOTE: This is quite dangerous as we can't quit if the handler throws an exception, neither can we break / stop it (we're already in an ISR)
-	// !!! USE WITH CAUTION !!!
-	if (handler) handler();
-}
-
 //void __attribute__((aligned(16))) __attribute__((interrupt("machine"))) interrupt_service_routine() // Auto-saves registers
 void __attribute__((aligned(16))) __attribute__((naked)) interrupt_service_routine() // Manual register save
 {
@@ -894,10 +866,6 @@ void __attribute__((aligned(16))) __attribute__((naked)) interrupt_service_routi
 				else if (hwid&4)
 				{
 					HandleUART();
-				}
-				else if (hwid&8)
-				{
-					HandleHBlank();
 				}
 				else
 				{
@@ -1387,9 +1355,11 @@ void __attribute__((aligned(16))) __attribute__((naked)) interrupt_service_routi
 					taskfunc task = (taskfunc)read_csr(0x8AC); // A2
 					enum ETaskState initialState = read_csr(0x8AD); // A3
 					const uint32_t runLength = read_csr(0x8AE); // A4
-					uint32_t parentSP = read_csr(0x8A2); // SP
+					const uint32_t stackPointer = read_csr(0x8AF); // A5
+					const uint32_t gp = read_csr(0x8A3); // GP
+					uint32_t parentSP = (stackPointer != 0x0) ? stackPointer : read_csr(0x8A2); // SP
 					// Using parent's stack pointer as the new task's stack pointer
-					int retVal = _task_add(context, name, task,  initialState, runLength, hartid, parentSP);
+					int retVal = _task_add(context, name, task, initialState, runLength, hartid, gp, parentSP);
 					write_csr(0x8AA, retVal);
 				}
 				else if (value==16385) // task_switch_to_next

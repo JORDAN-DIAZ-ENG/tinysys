@@ -21,8 +21,6 @@ public:
 
 	void UpdateVideoLink(uint32_t* pixels, int pitch, int scanline, CBus* bus);
 
-	uint32_t m_hirq{ 0 };
-
 private:
 	uint32_t m_cmd{ 0 };
 	uint32_t m_data{ 0 };
@@ -40,5 +38,6 @@ private:
 	uint32_t m_ctlreg{ 0 };
 	int32_t m_regA{ 0 };
 	int32_t m_regB{ 65536 };
+	int32_t m_regC{ 0 };
 	std::queue<uint32_t> m_fifo;
 };

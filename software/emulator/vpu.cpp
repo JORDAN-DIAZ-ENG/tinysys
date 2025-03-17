@@ -53,10 +53,6 @@ void CVPU::UpdateVideoLink(uint32_t* pixels, int pitch, int scanline, CBus* bus)
 							pixels[linetop0 + x*2+1] = expandedcolor;
 							pixels[linetop1 + x*2+1] = expandedcolor;
 						}
-						if (scanline >= m_regB)
-							m_hirq = m_regA & 1;
-						else
-							m_hirq = 0;
 					}
 				}
 				else
@@ -78,10 +74,6 @@ void CVPU::UpdateVideoLink(uint32_t* pixels, int pitch, int scanline, CBus* bus)
 							uint32_t expandedcolor = 0xFF000000 | (R << 20) | (B << 12) | (G << 4);
 							pixels[linetop + x] = expandedcolor;
 						}
-						if (scanline >= m_regB)
-							m_hirq = m_regA & 1;
-						else
-							m_hirq = 0;
 					}
 				}
 			}
@@ -108,10 +100,6 @@ void CVPU::UpdateVideoLink(uint32_t* pixels, int pitch, int scanline, CBus* bus)
 							pixelPos1[0] = color;
 							pixelPos1[1] = color;
 						}
-						if (scanline >= m_regB)
-							m_hirq = m_regA & 1;
-						else
-							m_hirq = 0;
 					}
 				}
 				else
@@ -129,10 +117,6 @@ void CVPU::UpdateVideoLink(uint32_t* pixels, int pitch, int scanline, CBus* bus)
 							uint32_t color = m_vgapalette[sourceRow[x]];
 							pixelRow[x] = color;
 						}
-						if (scanline >= m_regB)
-							m_hirq = m_regA & 1;
-						else
-							m_hirq = 0;
 					}
 				}
 			}
@@ -304,8 +288,10 @@ void CVPU::Tick(CBus* bus)
 			// REGSET
 			if (m_ctlreg == 0)
 				m_regA = m_regA | m_data;
-			else
+			else if(m_ctlreg == 1)
 				m_regB = m_data;
+			else
+				m_regC = m_regC | m_data;
 			m_state = 0;
 		}
 		break;
@@ -315,8 +301,10 @@ void CVPU::Tick(CBus* bus)
 			// REGCLR
 			if (m_ctlreg == 0)
 				m_regA = m_regA & ~m_data;
-			else
+			else if (m_ctlreg == 1)
 				m_regB = 0;
+			else
+				m_regC = m_regC & ~m_data;
 			m_state = 0;
 		}
 		break;

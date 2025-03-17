@@ -18,7 +18,6 @@ module axi4CSRFile #(
 	// Incoming hardware interrupt requests
 	input wire keyirq,
 	input wire uartirq,
-	input wire hirq,
 	// Reboot request via ESP32 pin held high
 	input wire rebootreq,
 	// CPU reset line
@@ -126,7 +125,7 @@ always @(posedge aclk) begin
 
 		softInterruptEna <= mieshadow[0] && mstatusIEshadow;										// Software interrupt
 		timerInterrupt <= mieshadow[1] && mstatusIEshadow && (wallclocktime >= timecmpshadow);		// Timer interrupt
-		hwInterrupt <= mieshadow[2] && mstatusIEshadow && (hirq || uartirq || keyirq);				// Machine external interrupts
+		hwInterrupt <= mieshadow[2] && mstatusIEshadow && ( uartirq || keyirq);						// Machine external interrupts
 	end
 end
 
@@ -164,6 +163,9 @@ always @(posedge aclk) begin
 	end
 end
 
+// Reset clear counter (shift)
+logic [10:0] cpuresetclearcounter;
+
 always @(posedge aclk) begin
 	if (~delayedresetn) begin
 		csrdin <= 32'd0;
@@ -176,12 +178,16 @@ always @(posedge aclk) begin
 		cpuresetreq_r <= 1'b0;
 		mieshadow <= 3'b000;
 		csrwe <= 1'b0;
+		cpuresetclearcounter <= 11'd0;
 	end else begin
-		// Clear reset request
-		cpuresetreq_r <= 1'b0;
 		s_axi.wready <= 1'b0;
 		s_axi.bvalid <= 1'b0;
 		csrwe <= 1'b0;
+
+		// Clear reset request when the timer is up
+		if (~cpuresetclearcounter[10])
+			cpuresetreq_r <= 1'b0;
+		cpuresetclearcounter <= {cpuresetclearcounter[9:0], 1'b1};
 
 		unique case(writestate)
 			2'b00: begin
@@ -213,7 +219,10 @@ always @(posedge aclk) begin
 					`CSR_MIE:			mieshadow <= {csrdin[11], csrdin[7], csrdin[3]};	// Only store MEIE, MTIE and MSIE bits
 					`CSR_MSTATUS:		mstatusIEshadow <= csrdin[3];						// Global interrupt enable (MIE) bit
 					`CSR_MTVEC:			mtvecshadow <= csrdin;								// Interrupt vector
-					`CSR_CPURESET:		cpuresetreq_r <= csrdin[0];							// CPU reset request needs to be high for one clock only (reset vector is in mtvec)
+					`CSR_CPURESET:		begin
+						cpuresetreq_r <= csrdin[0];
+						cpuresetclearcounter <= 11'h00;
+					end
 					default:			dummyshadow <= csrdin[0];							// Unused - sink
 				endcase
 				writestate <= 2'b01;
@@ -255,7 +264,7 @@ always @(posedge aclk) begin
 						`CSR_TIMELO:			s_axi.rdata[31:0] <= wallclocktime[31:0];
 						`CSR_CYCLELO:			s_axi.rdata[31:0] <= cpuclocktime[31:0];
 						// Interrupt states of all hardware devices
-						`CSR_HWSTATE:			s_axi.rdata[31:0] <= {28'd0, hirq, uartirq, keyirq, 1'b0};	// {hblank hit selected line, uart data arrived, sdcard inserted/removed, 0}
+						`CSR_HWSTATE:			s_axi.rdata[31:0] <= {29'd0, uartirq, keyirq, 1'b0};	// {uart data arrived, sdcard inserted/removed, 0}
 						// Shadow of current program counter
 						`CSR_PROGRAMCOUNTER:	s_axi.rdata[31:0] <= pc_in;
 						// Pass through actual data

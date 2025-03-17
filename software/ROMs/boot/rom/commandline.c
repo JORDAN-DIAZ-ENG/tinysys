@@ -17,7 +17,7 @@ extern struct SCommandLineContext* s_cliCtx;
 static const char *s_taskstates[]={ "NONE", "HALT", "EXEC", "TERM", "DEAD"};
 
 // Device version
-#define VERSIONSTRING "0014A"
+#define VERSIONSTRING "0014D"
 
 // File transfer timeout
 #define FILE_TRANSFER_TIMEOUT 1000
@@ -149,8 +149,6 @@ uint32_t ExecuteCmd(char *_cmd, struct EVideoContext *kernelgfx)
 		write_csr(0xFF0, 0x0);
 
 		// Reset to default ROM entry points and reset each CPU. Make sure main CPU ist last to go.
-		E32SetupCPU(1, (void*)0x0);
-		E32ResetCPU(1);
 		E32SetupCPU(0, (void*)0x0);
 		E32ResetCPU(0);
 	}
@@ -276,7 +274,7 @@ uint32_t ExecuteCmd(char *_cmd, struct EVideoContext *kernelgfx)
 			// This will cause corruption of the runtime environment.
 			if (s_cliCtx->startAddress != 0x0)
 			{
-				strncpy(s_cliCtx->execName, filename, 32);
+				strncpy(s_cliCtx->execName, command, 32);
 
 				const char *param = strtok(NULL, " ");
 				// Change working directory
@@ -289,7 +287,7 @@ uint32_t ExecuteCmd(char *_cmd, struct EVideoContext *kernelgfx)
 				}
 
 				// User tasks always boot on main CPU, and can then add their own tasks to the other CPUs
-				s_cliCtx->userTaskID = _task_add(tctx[0], command, (taskfunc)_runExecTask, TS_RUNNING, HUNDRED_MILLISECONDS_IN_TICKS, 0, TASK_STACK_POINTER(0, 2, TASK_STACK_SIZE));
+				s_cliCtx->userTaskID = TaskAdd(tctx[0], command, (taskfunc)_runExecTask, TS_RUNNING, HUNDRED_MILLISECONDS_IN_TICKS, TASK_STACK_POINTER(0, 2, TASK_STACK_SIZE));
 
 				return 0;
 			}
@@ -474,18 +472,9 @@ void _CLITask()
 			// Mark console for refresh
 			++s_cliCtx->refreshConsoleOut;
 		}
+
 		if (execcmd)
 			cursortoggle = 0;
-
-		// Report task termination and reset device to default state
-		struct STask *task = &taskctx->tasks[s_cliCtx->userTaskID];
-		if (task->state == TS_TERMINATED)
-		{
-			task->state = TS_UNKNOWN;
-			++s_cliCtx->refreshConsoleOut;
-			taskctx->interceptUART = 0;
-			DeviceDefaultState(0);
-		}
 
 		// Process or echo input only when we have no ELF running on hart#1
 		if(taskctx->numTasks <= 2)
