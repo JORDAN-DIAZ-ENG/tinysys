@@ -14,9 +14,15 @@ extern void Test_Scene(void);
 int main(int argc, char* argv[])
 {
 	PrecomputeTrigLUT();
-	audioInit(s_audioData, s_audioByteCt);
-	audioStartMusic();
-	audioPlay(0, s_audioData, s_audioByteCt, false);
+
+	audioInit();
+	audioPlay(0, s_audioData, s_audioByteCt, true, 255, 255);
+
+
+	for (;;)
+	{
+		audioTick();
+	}
 
 
 	if (true)
@@ -24,6 +30,5 @@ int main(int argc, char* argv[])
 		Test_Scene();
 	}
 
-	audioShutdown();
 	return 0;
 }
