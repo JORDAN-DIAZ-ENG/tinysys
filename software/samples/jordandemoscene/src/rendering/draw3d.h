@@ -5,41 +5,6 @@
 
 #include "system.h"
 
-//#include <math.h>
-
-//#include "common.h"
-//#include <vector>
-
-
-//struct Rotation
-//{
-//	int16_t x, y, z;
-//};
-//
-//struct Vec3Fixed { int16_t x, y, z; };
-//struct Vec2Fixed { int16_t x, y; };
-//
-//
-//extern std::vector<Vec2Fixed> modifiedPixels; 
-//
-//struct Vec3 { float x, y, z; };
-//struct Vec2 { float x, y; };
-//struct Triangle { Vec3Fixed v0, v1, v2; uint32_t color; };
-//
-//// Function declarations (no definitions)
-//Vec2 ProjectToScreen(Vec3Fixed point, int screenWidth, int screenHeight);
-//void DrawLine(uint8_t* buffer, Vec2Fixed p1, Vec2Fixed p2, uint32_t color);
-//void DrawWireframeCube(uint8_t* buffer, float size, uint32_t color, float rotationAngle);
-//void DrawTriangle(uint8_t* buffer, Triangle t);
-//void DrawSolidCube(uint8_t* buffer, float size);
-//void DrawWireframe(uint8_t* buffer, Vec3Fixed* vertices, int* indices, int indexCount, uint32_t color, uint16_t scale, Rotation &rot);
-//
-//void ClearModifiedPixels(uint8_t* bufferA, uint32_t backgroundColor);
-//void ClearModifiedPixels(uint8_t* bufferA, uint8_t* bufferB,  uint32_t backgroundColor);
-
-/**
- * @brief Fixed-point multiplication
- */
 inline int FixedMul(int a, int b) { return (a * b) >> FIXED_POINT_SHIFT; }
 
 Vec3 ProjectPoint(const Vec3& point, int fov);

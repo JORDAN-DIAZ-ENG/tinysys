@@ -2,6 +2,7 @@
 #include "system.h"
 #include "vpu.h"
 #include <stdio.h>  // Debugging output
+#include "basesystem.h"
 
 // Double buffering
 static uint8_t* g_framebufferA = nullptr;
@@ -93,10 +94,36 @@ void System_LoadPartialPalette(uint16_t* palette, int offset, int paletteSize)
 	}
 }
 
-void System_ClearZBuffer()
+//void System_ClearZBuffer()
+//{
+//	for (int i = 0; i < SCREEN_WIDTH * SCREEN_HEIGHT; i++)
+//	{
+//		s_zBuffer[i] = 0x7FFF << FIXED_POINT_SHIFT;  // Set to maximum depth value
+//	}
+//}
+
+void InitTimeSystem()
 {
-	for (int i = 0; i < SCREEN_WIDTH * SCREEN_HEIGHT; i++)
-	{
-		s_zBuffer[i] = 0x7FFF << FIXED_POINT_SHIFT;  // Set to maximum depth value
-	}
+	startTime = E32ReadTime();
+	lastFrameTime = startTime;
+}
+
+void UpdateDeltaTime()
+{
+	uint64_t currentTime = E32ReadTime();
+	uint64_t elapsedTicks = currentTime - lastFrameTime;
+	lastFrameTime = currentTime;
+
+	// Convert ticks to seconds
+	deltaTime = (float)elapsedTicks / ONE_SECOND_IN_TICKS;
+}
+
+float GetDeltaTime()
+{
+	return deltaTime;
+}
+
+uint64_t GetElapsedTime()
+{
+	return ClockToMs(E32ReadTime() - startTime);
 }

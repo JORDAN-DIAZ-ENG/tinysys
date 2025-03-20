@@ -3,12 +3,14 @@
 
 #include <cstdio>
 #include <core.h>
+#include "uart.h"
 
 void decompress(uint8_t* src, uint32_t srcBytes, uint8_t* dest, uint32_t* destBytes)
 {
 	int rc = uncompress(dest, destBytes, src, srcBytes);
 	if (rc != Z_OK)
 	{
+		UARTPrintf("Decompression failed: %d\n", Z_OK);
 		printf("Decompression failed: %d\n", Z_OK);
 	}
 	printf("decompressed %d bytes\n", *destBytes);
@@ -268,17 +270,13 @@ uint32_t        s_frame = -1;
 #include "audio.inl"
 
 #define MAX_AUDIO_BYTES     ( 2 * 1024 * 1024 )
-static uint8_t* s_audioDecomp;
-static uint32_t     s_audioDecompByteCt;
+static uint8_t s_audioDecomp[MAX_AUDIO_BYTES];
+static uint32_t     s_audioDecompByteCt = MAX_AUDIO_BYTES;
 
 
 
 void audioInit(void)
 {
-	s_audioDecomp = (uint8_t*)malloc(MAX_AUDIO_BYTES);
-	s_audioDecompByteCt = MAX_AUDIO_BYTES;
-	decompress(s_audioData, s_audioByteCt, s_audioDecomp, &s_audioDecompByteCt);
-
 	s_mixer = new Mixer();
 	s_playbackBuffers[0] = (uint32_t*)APUAllocateBuffer(BUF_SAMPLES * 2 * sizeof(uint16_t));
 	s_playbackBuffers[1] = (uint32_t*)APUAllocateBuffer(BUF_SAMPLES * 2 * sizeof(uint16_t));
@@ -311,33 +309,27 @@ void audioTick(void)
 	}
 }
 
-
-
-void audioPlay(int32_t channel, uint8_t* compressedAdpcm, int32_t compressedSize, bool loop, uint8_t vl, uint8_t vr)
+void audioDecompressPlay(int32_t channel, uint8_t* compressedAdpcm, int32_t compressedSize, bool loop, uint8_t vl, uint8_t vr)
 {
-	static uint8_t decompressedBuffer[MAX_AUDIO_BYTES];
-	uint32_t decompressedSize = MAX_AUDIO_BYTES;
-
 	// Decompress the ADPCM data
-	decompress(compressedAdpcm, compressedSize, decompressedBuffer, &decompressedSize);
-
-	if (decompressedSize == 0)
+	decompress(compressedAdpcm, compressedSize, s_audioDecomp, &s_audioDecompByteCt);
+	if (s_audioDecompByteCt == 0)
 	{
 		printf("Decompression failed!\n");
 		return;
 	}
-
 	// Ensure decompressed PCM data is valid
-	s_mixer->play(channel, decompressedBuffer, decompressedSize, loop, vl, vr);
+	s_mixer->play(channel, s_audioDecomp, s_audioDecompByteCt, loop, vl, vr);
+}
+
+
+void audioPlay(int32_t channel, uint8_t* compressedAdpcm, int32_t compressedSize, bool loop, uint8_t vl, uint8_t vr)
+{
+	s_mixer->play(channel, s_audioDecomp, s_audioDecompByteCt, loop, vl, vr);
 }
 
 
 bool audioChannelPlaying(int32_t channel)
 {
 	return(s_mixer->channelPlaying(channel));
-}
-
-void audioStartMusic(void)
-{
-	audioPlay(0, s_audioDecomp, s_audioDecompByteCt);
 }

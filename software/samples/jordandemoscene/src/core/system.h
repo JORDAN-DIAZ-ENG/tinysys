@@ -67,12 +67,21 @@ typedef enum
 
 static Camera s_camera = { {0, 0, 1000}, {0, 0, -1}, 1.5f, 1.0f, 11000.0f };
 
+static uint64_t startTime = 0;
+static uint64_t lastFrameTime = 0;
+static float deltaTime = 0.f;
+
+// Time Functions
+void InitTimeSystem();
+void UpdateDeltaTime();
+float GetDeltaTime();
+uint64_t GetElapsedTime(); // Get elapsed time in milliseconds
+
 // System Functions
 void System_Init(VideoMode mode, ColorMode color);  // System initialization
 void System_SwapBuffers();  // Swap framebuffers efficiently
 void System_ClearScreen(uint8_t color);  // Fast screen clear
 void System_LoadFullPalette(uint16_t *palette);
 void System_LoadPartialPalette(uint16_t* palette, int offset, int paletteSize);
-void PrecomputeTrigLUT();
 
 #endif // SYSTEM_H

@@ -13,7 +13,11 @@
 #include "wall.inl"
 #include "audio.h"
 
-#include "explode.inl"
+//#include "explode.inl"
+#include "audio.inl"
+#include "basesystem.h"
+#include "uart.h"
+#include "task.h"
 
 void MaxwellMovement(Vec3 &pos, EulerRot &rot, int &scale)
 {
@@ -45,13 +49,12 @@ void MaxwellMovement(Vec3 &pos, EulerRot &rot, int &scale)
 	//}
 
 
-	rot.y += 10;
+	rot.y += 30;
 	//maxwellRot.x += 5;
 
 	if (rot.y >= 360)
 	{
 		rot.y = 0;
-		audioPlay(1, s_explodeData, s_explodeByteCt);
 	}
 
 	if (rot.x >= 360)
@@ -83,22 +86,36 @@ void Test_Scene(void)
 	EulerRot maxwellRot = { -90, 0, -30 };
 	Vec3 maxwellPosition = { 0 , -50 , 0  };
 
-
-
+	float targetFPS = 1.f;
+	uint64_t lastExecutionTime = 0;
 
     for (;;)
     {
-        // Clear screen to black
-		System_ClearScreen(150);
 
+		UpdateDeltaTime();
+		uint64_t currentTime = E32ReadTime();
+		uint64_t frameTicks = (uint64_t)(ONE_SECOND_IN_TICKS / targetFPS);
+
+		lastExecutionTime = currentTime;
+
+		// Clear screen to black
+		System_ClearScreen(150);
 
 		Render_Maxwell(s_maxwellVerts, s_maxwellUVs, s_maxwellNormals, s_maxwellIndecies, 1824, s_maxwellImg, s_maxwellSX, s_maxwellSY, maxwellScale, maxwellRot, 1, maxwellPosition);
 
 		MaxwellMovement(maxwellPosition, maxwellRot, maxwellScale);
 
-	
-        VPUWaitVSync(); // Wait for vsync and swap buffers
+		VPUWaitVSync(); // Wait for vsync and swap buffers
 		CFLUSH_D_L1; // Flush cache before swap
-        VPUSwapPages(&g_videoContext, &g_swapContext);
+		VPUSwapPages(&g_videoContext, &g_swapContext);
+
+		if (currentTime - lastExecutionTime >= frameTicks)
+		{
+
+			
+
+
+		}
+
     }
 }
